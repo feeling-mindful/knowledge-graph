@@ -1,15 +1,28 @@
 {
-  "name": "knowledge-graph",
-  "version": "0.1.0",
+  "name": "@feelingmindful/knowledge-graph",
+  "version": "0.2.0",
+  "description": "Obsidian vault knowledge graph MCP server with semantic search, community detection, and wiki-link traversal",
   "type": "module",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "cli": "tsx src/cli/index.ts"
+    "cli": "tsx src/cli/index.ts",
+    "prepublishOnly": "npm run build"
   },
   "bin": {
-    "kg": "dist/cli/index.js"
+    "kg": "dist/cli/index.js",
+    "knowledge-graph": "dist/mcp/index.js"
+  },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/feeling-mindful/feeling-mindful-plugins.git",
+    "directory": "packages/knowledge-graph"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
