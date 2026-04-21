@@ -8,6 +8,8 @@ export class Store {
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
+    this.db.pragma('foreign_keys = ON');
+    this.db.pragma('busy_timeout = 5000');
     sqliteVec.load(this.db);
     this.createSchema();
   }

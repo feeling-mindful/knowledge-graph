@@ -12,6 +12,13 @@ describe('Store', () => {
     store.close();
   });
 
+  it('sets foreign_keys and busy_timeout PRAGMAs', () => {
+    const fk = store.db.pragma('foreign_keys') as Array<{ foreign_keys: number }>;
+    expect(fk[0].foreign_keys).toBe(1);
+    const bt = store.db.pragma('busy_timeout') as Array<{ timeout: number }>;
+    expect(bt[0].timeout).toBe(5000);
+  });
+
   it('creates schema on initialization', () => {
     const tables = store.db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table'"
