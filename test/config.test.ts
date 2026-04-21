@@ -47,4 +47,20 @@ describe('resolveConfig', () => {
     const config = resolveConfig({});
     expect(config.dataDir).toContain('.local/share/knowledge-graph');
   });
+
+  it('expands tilde in vault path', () => {
+    process.env.KG_VAULT_PATH = '~/Documents/Obsidian/Dev';
+    delete process.env.KG_DATA_DIR;
+    const config = resolveConfig({});
+    expect(config.vaultPath).not.toContain('~');
+    expect(config.vaultPath).toContain('/Documents/Obsidian/Dev');
+  });
+
+  it('expands tilde in data dir', () => {
+    process.env.KG_VAULT_PATH = '/tmp/vault';
+    process.env.KG_DATA_DIR = '~/custom-data';
+    const config = resolveConfig({});
+    expect(config.dataDir).not.toContain('~');
+    expect(config.dataDir).toContain('/custom-data');
+  });
 });

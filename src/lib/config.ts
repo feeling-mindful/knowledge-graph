@@ -12,6 +12,10 @@ export interface ConfigOverrides {
   dataDir?: string;
 }
 
+function expandHome(p: string): string {
+  return p.startsWith('~') ? join(homedir(), p.slice(1)) : p;
+}
+
 export function resolveConfig(overrides: ConfigOverrides): KGConfig {
   const vaultPath = overrides.vaultPath
     ?? process.env.KG_VAULT_PATH;
@@ -30,8 +34,8 @@ export function resolveConfig(overrides: ConfigOverrides): KGConfig {
     ?? join(xdgData, 'knowledge-graph');
 
   return {
-    vaultPath,
-    dataDir,
-    dbPath: join(dataDir, 'kg.db'),
+    vaultPath: expandHome(vaultPath),
+    dataDir: expandHome(dataDir),
+    dbPath: join(expandHome(dataDir), 'kg.db'),
   };
 }
