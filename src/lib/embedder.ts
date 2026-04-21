@@ -6,7 +6,7 @@ export class Embedder {
   private extractor: FeatureExtractionPipeline | null = null;
 
   async init(): Promise<void> {
-    this.extractor = await pipeline('feature-extraction', MODEL, {
+    this.extractor = await (pipeline as any)('feature-extraction', MODEL, {
       dtype: 'q8',
     }) as FeatureExtractionPipeline;
   }

@@ -1,27 +1,35 @@
-import Graph from 'graphology';
-import louvain from 'graphology-communities-louvain';
-import betweennessCentrality from 'graphology-metrics/centrality/betweenness.js';
-import pagerank from 'graphology-metrics/centrality/pagerank.js';
+import GraphLib from 'graphology';
+import louvainLib from 'graphology-communities-louvain';
+import betweennessLib from 'graphology-metrics/centrality/betweenness.js';
+import pagerankLib from 'graphology-metrics/centrality/pagerank.js';
 import type { Store } from './store.js';
 import type { PathResult, SubgraphResult, Community } from './types.js';
+
+// CJS interop — these libraries export default as a property
+const Graph = (GraphLib as any).default ?? GraphLib;
+const louvain = (louvainLib as any).default ?? louvainLib;
+const betweennessCentrality = (betweennessLib as any).default ?? betweennessLib;
+const pagerank = (pagerankLib as any).default ?? pagerankLib;
+
+type GraphInstance = InstanceType<typeof Graph>;
 
 /**
  * Run PageRank, filtering out isolated nodes that prevent convergence.
  * Isolates get a score of 0.
  */
-function safeRank(graph: Graph): Record<string, number> {
+function safeRank(graph: GraphInstance): Record<string, number> {
   const scores: Record<string, number> = {};
 
   // Separate connected nodes from isolates
   const connected = new Graph({ multi: false, type: 'undirected' });
-  graph.forEachNode((id, attrs) => {
+  graph.forEachNode((id: string, attrs: Record<string, unknown>) => {
     if (graph.degree(id) > 0) {
       connected.addNode(id, attrs);
     } else {
       scores[id] = 0;
     }
   });
-  graph.forEachEdge((_edge, _attrs, source, target) => {
+  graph.forEachEdge((_edge: string, _attrs: Record<string, unknown>, source: string, target: string) => {
     if (connected.hasNode(source) && connected.hasNode(target) && !connected.hasEdge(source, target)) {
       connected.addEdge(source, target);
     }
@@ -29,7 +37,7 @@ function safeRank(graph: Graph): Record<string, number> {
 
   if (connected.order === 0) return scores;
 
-  const pr = pagerank(connected, { maxIterations: 1000, tolerance: 1e-6 });
+  const pr = pagerank(connected, { maxIterations: 1000, tolerance: 1e-6 }) as Record<string, number>;
   for (const [id, score] of Object.entries(pr)) {
     scores[id] = score;
   }
@@ -44,10 +52,10 @@ interface NeighborInfo {
 }
 
 export class KnowledgeGraph {
-  private graph: Graph;
+  private graph: GraphInstance;
   private store: Store;
 
-  private constructor(graph: Graph, store: Store) {
+  private constructor(graph: GraphInstance, store: Store) {
     this.graph = graph;
     this.store = store;
   }
@@ -203,7 +211,7 @@ export class KnowledgeGraph {
 
   detectCommunities(resolution = 1.0): Community[] {
     const undirected = this.toUndirected();
-    const assignments = louvain(undirected, { resolution });
+    const assignments = louvain(undirected, { resolution }) as Record<string, number>;
     const communityMap = new Map<number, string[]>();
 
     for (const [nodeId, communityId] of Object.entries(assignments)) {
@@ -245,7 +253,7 @@ export class KnowledgeGraph {
 
   bridges(limit: number): Array<{ id: string; title: string; score: number }> {
     const undirected = this.toUndirected();
-    const bc = betweennessCentrality(undirected);
+    const bc = betweennessCentrality(undirected) as Record<string, number>;
     return Object.entries(bc)
       .sort((a, b) => b[1] - a[1])
       .slice(0, limit)
@@ -277,10 +285,10 @@ export class KnowledgeGraph {
       }));
   }
 
-  private toUndirected(): Graph {
+  private toUndirected(): GraphInstance {
     const undirected = new Graph({ multi: false, type: 'undirected' });
-    this.graph.forEachNode((id, attrs) => undirected.addNode(id, attrs));
-    this.graph.forEachEdge((_edge, _attrs, source, target) => {
+    this.graph.forEachNode((id: string, attrs: Record<string, unknown>) => undirected.addNode(id, attrs));
+    this.graph.forEachEdge((_edge: string, _attrs: Record<string, unknown>, source: string, target: string) => {
       if (!undirected.hasEdge(source, target)) undirected.addEdge(source, target);
     });
     return undirected;
@@ -288,7 +296,7 @@ export class KnowledgeGraph {
 }
 
 function findAllSimplePaths(
-  graph: Graph,
+  graph: GraphInstance,
   from: string,
   to: string,
   maxDepth: number,
