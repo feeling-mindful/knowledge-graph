@@ -10,7 +10,8 @@ import { KnowledgeGraph } from '../lib/graph.js';
 import { Search } from '../lib/search.js';
 import { resolveNodeName } from '../lib/resolve.js';
 import { VaultWriter } from '../lib/writer.js';
-import { mkdirSync } from 'fs';
+import { mkdirSync, existsSync, unlinkSync } from 'fs';
+import { join } from 'path';
 
 const config = resolveConfig({});
 mkdirSync(config.dataDir, { recursive: true });
@@ -20,6 +21,28 @@ const embedder = new Embedder();
 const search = new Search(store, embedder);
 const writer = new VaultWriter(config.vaultPath, store);
 let embedderReady = false;
+
+const PENDING_INDEX_SENTINEL = join(config.vaultPath, '.kg-pending-index');
+
+/**
+ * Opportunistically flush pending vault writes from thinking-graph (or any
+ * other writer) into the index. thinking-graph's VaultBridge drops a
+ * `.kg-pending-index` sentinel after each write; this helper flushes that
+ * before serving a read so `kg_search()` is never stale relative to the
+ * latest `learn()` output. Best-effort: failures are swallowed so a flaky
+ * indexer never blocks search.
+ */
+async function flushPendingIndex(): Promise<void> {
+  if (!existsSync(PENDING_INDEX_SENTINEL)) return;
+  try {
+    if (!embedderReady) { await embedder.init(); embedderReady = true; }
+    const pipeline = new IndexPipeline(store, embedder);
+    await pipeline.index(config.vaultPath, 1.0);
+    unlinkSync(PENDING_INDEX_SENTINEL);
+  } catch (err) {
+    console.error('Auto-index flush failed (search will use prior index):', err);
+  }
+}
 
 const server = new McpServer({
   name: 'knowledge-graph',
@@ -44,6 +67,9 @@ server.tool(
     if (!embedderReady) { await embedder.init(); embedderReady = true; }
     const pipeline = new IndexPipeline(store, embedder);
     const stats = await pipeline.index(config.vaultPath, resolution ?? 1.0);
+    if (existsSync(PENDING_INDEX_SENTINEL)) {
+      try { unlinkSync(PENDING_INDEX_SENTINEL); } catch { /* idempotent */ }
+    }
     return { content: [{ type: 'text', text: JSON.stringify(stats, null, 2) }] };
   }
 );
@@ -117,6 +143,7 @@ server.tool(
     limit: z.number().optional().describe('Max results (default 20)'),
   },
   async ({ query, fulltext, limit }) => {
+    await flushPendingIndex();
     let results;
     if (fulltext) {
       results = store.searchFullText(query).slice(0, limit ?? 20);
