@@ -1,6 +1,6 @@
 {
   "name": "@feelingmindful/knowledge-graph",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Obsidian vault knowledge graph MCP server with semantic search, community detection, and wiki-link traversal",
   "type": "module",
   "scripts": {
@@ -27,6 +27,7 @@
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "ajv": "^8.17.1",
     "better-sqlite3": "^12.8.0",
     "commander": "^14.0.3",
     "graphology": "^0.26.0",
