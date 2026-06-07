@@ -13,10 +13,10 @@ describe('Embedder', () => {
     await embedder.dispose();
   });
 
-  it('generates a 384-dimensional embedding', async () => {
+  it('generates a 768-dimensional embedding', async () => {
     const embedding = await embedder.embed('Hello world');
     expect(embedding).toBeInstanceOf(Float32Array);
-    expect(embedding.length).toBe(384);
+    expect(embedding.length).toBe(768);
   });
 
   it('generates similar embeddings for similar text', async () => {

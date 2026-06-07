@@ -1,6 +1,6 @@
 import { pipeline, type FeatureExtractionPipeline } from '@huggingface/transformers';
 
-const MODEL = 'Xenova/all-MiniLM-L6-v2';
+const MODEL = process.env.KG_EMBED_MODEL ?? 'Xenova/bge-base-en-v1.5';
 
 export class Embedder {
   private extractor: FeatureExtractionPipeline | null = null;

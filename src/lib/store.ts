@@ -50,7 +50,7 @@ export class Store {
         USING fts5(title, content, content='nodes', content_rowid='rowid');
 
       CREATE VIRTUAL TABLE IF NOT EXISTS nodes_vec
-        USING vec0(embedding float[384]);
+        USING vec0(embedding float[768]);
     `);
   }
 
