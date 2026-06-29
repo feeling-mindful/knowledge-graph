@@ -191,6 +191,7 @@ export class Store {
     this.db.prepare('DELETE FROM nodes WHERE id = ?').run(id);
     this.db.prepare('DELETE FROM edges WHERE source_id = ? OR target_id = ?').run(id, id);
     this.db.prepare('DELETE FROM sync WHERE path = ?').run(id);
+    this.db.prepare('DELETE FROM centrality WHERE node_id = ?').run(id);
   }
 
   deleteAllEdgesFrom(nodeId: string): void {

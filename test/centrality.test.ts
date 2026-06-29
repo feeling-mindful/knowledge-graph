@@ -44,6 +44,13 @@ describe('centrality store', () => {
     store.clearCentrality();
     expect(store.getCentrality('a.md')).toBe(0);
   });
+
+  it('removes a node\'s centrality row when the node is deleted', () => {
+    store.upsertNode({ id: 'a.md', title: 'A', content: 'body', frontmatter: {} });
+    store.upsertCentrality('a.md', 0.7);
+    store.deleteNode('a.md');
+    expect(store.getCentrality('a.md')).toBe(0);
+  });
 });
 
 describe('search centrality boost (fulltext)', () => {
