@@ -285,6 +285,15 @@ export class KnowledgeGraph {
       }));
   }
 
+  /**
+   * PageRank score per node (isolates score 0). Computed over the undirected
+   * projection — same scores used to rank community members. Persisted at index
+   * time so search can apply a centrality boost without recomputing.
+   */
+  pagerank(): Record<string, number> {
+    return safeRank(this.toUndirected());
+  }
+
   private toUndirected(): GraphInstance {
     const undirected = new Graph({ multi: false, type: 'undirected' });
     this.graph.forEachNode((id: string, attrs: Record<string, unknown>) => undirected.addNode(id, attrs));

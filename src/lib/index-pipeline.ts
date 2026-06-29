@@ -82,7 +82,7 @@ export class IndexPipeline {
       }
     }
 
-    // If any nodes were indexed, re-run community detection
+    // If any nodes were indexed, re-run community detection + persist centrality
     if (stats.nodesIndexed > 0 || stats.stubNodesCreated > 0) {
       const kg = KnowledgeGraph.fromStore(this.store);
       const communities = kg.detectCommunities(resolution);
@@ -91,6 +91,16 @@ export class IndexPipeline {
         this.store.upsertCommunity(c);
       }
       stats.communitiesDetected = communities.length;
+
+      // Persist normalized PageRank ([0,1] by max) so search can apply a
+      // centrality boost without recomputing the graph on every query.
+      const pr = kg.pagerank();
+      const scores = Object.values(pr);
+      const max = scores.length > 0 ? Math.max(...scores) : 0;
+      this.store.clearCentrality();
+      for (const [id, score] of Object.entries(pr)) {
+        this.store.upsertCentrality(id, max > 0 ? score / max : 0);
+      }
     }
 
     return stats;

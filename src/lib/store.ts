@@ -46,11 +46,16 @@ export class Store {
         indexed_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS centrality (
+        node_id TEXT PRIMARY KEY,
+        pagerank REAL NOT NULL DEFAULT 0
+      );
+
       CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts
         USING fts5(title, content, content='nodes', content_rowid='rowid');
 
       CREATE VIRTUAL TABLE IF NOT EXISTS nodes_vec
-        USING vec0(embedding float[384]);
+        USING vec0(embedding float[768]);
     `);
   }
 
@@ -186,6 +191,7 @@ export class Store {
     this.db.prepare('DELETE FROM nodes WHERE id = ?').run(id);
     this.db.prepare('DELETE FROM edges WHERE source_id = ? OR target_id = ?').run(id, id);
     this.db.prepare('DELETE FROM sync WHERE path = ?').run(id);
+    this.db.prepare('DELETE FROM centrality WHERE node_id = ?').run(id);
   }
 
   deleteAllEdgesFrom(nodeId: string): void {
@@ -275,6 +281,38 @@ export class Store {
       summary: r.summary,
       nodeIds: JSON.parse(r.node_ids),
     }));
+  }
+
+  // ─── Centrality (normalized PageRank in [0,1], persisted at index time) ───
+
+  upsertCentrality(nodeId: string, pagerank: number): void {
+    this.db.prepare(`
+      INSERT INTO centrality (node_id, pagerank) VALUES (?, ?)
+      ON CONFLICT(node_id) DO UPDATE SET pagerank = excluded.pagerank
+    `).run(nodeId, pagerank);
+  }
+
+  getCentrality(nodeId: string): number {
+    const row = this.db.prepare(
+      'SELECT pagerank FROM centrality WHERE node_id = ?'
+    ).get(nodeId) as { pagerank: number } | undefined;
+    return row?.pagerank ?? 0;
+  }
+
+  /** Batch-fetch centrality for a set of node ids (search re-ranking). */
+  getCentralityMap(nodeIds: string[]): Map<string, number> {
+    const map = new Map<string, number>();
+    if (nodeIds.length === 0) return map;
+    const placeholders = nodeIds.map(() => '?').join(',');
+    const rows = this.db.prepare(
+      `SELECT node_id, pagerank FROM centrality WHERE node_id IN (${placeholders})`
+    ).all(...nodeIds) as Array<{ node_id: string; pagerank: number }>;
+    for (const r of rows) map.set(r.node_id, r.pagerank);
+    return map;
+  }
+
+  clearCentrality(): void {
+    this.db.prepare('DELETE FROM centrality').run();
   }
 
   close(): void {
