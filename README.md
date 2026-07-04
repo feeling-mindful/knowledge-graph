@@ -91,6 +91,7 @@ No LLM inside the tool — the agent does the reasoning, the tool provides the d
 
 - **Parser:** Walks the vault for `.md` files, extracts YAML frontmatter (via gray-matter), wiki links, inline `#tags`, and enclosing paragraphs as edge context. Handles malformed YAML gracefully.
 - **Store:** SQLite with sqlite-vec for vector search and FTS5 for full-text search. Single file database.
+- **Search:** Hybrid by default — dense (vector) and lexical (FTS5) channels fused with Reciprocal Rank Fusion, then re-ranked by PageRank centrality. Set `KG_HYBRID_SEARCH=false` for semantic-only; pass `fulltext` for raw FTS5 MATCH syntax.
 - **Embedder:** `Xenova/bge-base-en-v1.5` via @huggingface/transformers. Runs locally, 109MB quantized model, 768-dimensional embeddings computed from title + tags + first paragraph. Override with `KG_EMBED_MODEL` env var. The vector index self-heals on model changes: when the embedder's actual output dimension stops matching the table, the index is rebuilt transactionally and the same index run re-embeds every note (deleted-note reconciliation is preserved). `KG_EMBED_DIM` (default 768) only sets the initial dimension for a fresh database.
 - **Graph:** graphology for in-memory graph algorithms — Louvain community detection, betweenness centrality, PageRank (with degree centrality fallback for disconnected graphs), BFS traversal, all-simple-paths via DFS.
 - **Indexing:** Incremental by default — tracks file mtimes, only reprocesses changed files. Community detection re-runs on the full graph. Use `--force` for a full rebuild.

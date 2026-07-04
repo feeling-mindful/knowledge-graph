@@ -132,7 +132,9 @@ program
       const embedder = new Embedder();
       await embedder.init();
       const search = new Search(store, embedder);
-      const results = await search.semantic(query, parseInt(opts.limit));
+      const results = process.env.KG_HYBRID_SEARCH !== 'false'
+        ? await search.hybrid(query, parseInt(opts.limit))
+        : await search.semantic(query, parseInt(opts.limit));
       output(results);
       await embedder.dispose();
     }
