@@ -24,6 +24,10 @@ let embedderReady = false;
 
 const PENDING_INDEX_SENTINEL = join(config.vaultPath, '.kg-pending-index');
 
+// Hybrid (dense + FTS5, RRF-fused) search is on by default; set
+// KG_HYBRID_SEARCH=false to force the legacy semantic-only path.
+const HYBRID_SEARCH_ENABLED = process.env.KG_HYBRID_SEARCH !== 'false';
+
 /**
  * Opportunistically flush pending vault writes from thinking-graph (or any
  * other writer) into the index. thinking-graph's VaultBridge drops a
@@ -136,20 +140,22 @@ server.tool(
 
 server.tool(
   'kg_search',
-  'Semantic or full-text search over the graph',
+  'Hybrid search over the graph (dense + full-text, RRF-fused). Pass fulltext for FTS5-only with raw MATCH syntax.',
   {
     query: z.string().describe('Search query'),
-    fulltext: z.boolean().optional().describe('Use full-text search instead of semantic'),
+    fulltext: z.boolean().optional().describe('Use FTS5-only search (raw MATCH syntax) instead of hybrid'),
     limit: z.number().optional().describe('Max results (default 20)'),
   },
   async ({ query, fulltext, limit }) => {
     await flushPendingIndex();
     let results;
     if (fulltext) {
-      results = store.searchFullText(query).slice(0, limit ?? 20);
+      results = store.searchFullText(query, limit ?? 20);
     } else {
       if (!embedderReady) { await embedder.init(); embedderReady = true; }
-      results = await search.semantic(query, limit ?? 20);
+      results = HYBRID_SEARCH_ENABLED
+        ? await search.hybrid(query, limit ?? 20)
+        : await search.semantic(query, limit ?? 20);
     }
     return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
   }
