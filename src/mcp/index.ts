@@ -150,7 +150,7 @@ server.tool(
     await flushPendingIndex();
     let results;
     if (fulltext) {
-      results = store.searchFullText(query).slice(0, limit ?? 20);
+      results = store.searchFullText(query, limit ?? 20);
     } else {
       if (!embedderReady) { await embedder.init(); embedderReady = true; }
       results = HYBRID_SEARCH_ENABLED

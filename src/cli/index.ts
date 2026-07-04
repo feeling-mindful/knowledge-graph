@@ -126,7 +126,7 @@ program
   .action(async (query, opts) => {
     const store = getStore();
     if (opts.fulltext) {
-      const results = store.searchFullText(query).slice(0, parseInt(opts.limit));
+      const results = store.searchFullText(query, parseInt(opts.limit));
       output(results);
     } else {
       const embedder = new Embedder();

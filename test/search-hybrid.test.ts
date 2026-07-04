@@ -64,4 +64,43 @@ describe('Search.hybrid', () => {
     const results = await search.hybrid('zebrastripe');
     expect(results.map(r => r.nodeId)).toContain('zebra.md');
   });
+
+  it('orders by fused score even with the centrality boost disabled', async () => {
+    const original = process.env.KG_GRAPH_BOOST_WEIGHT;
+    process.env.KG_GRAPH_BOOST_WEIGHT = '0';
+    try {
+      const results = await search.hybrid('graph structures');
+      const scores = results.map(r => r.score);
+      expect(scores).toEqual([...scores].sort((a, b) => b - a));
+      // Both-channel hits must still outrank cake.md with the boost off.
+      const ids = results.map(r => r.nodeId);
+      const cakeIdx = ids.indexOf('cake.md');
+      if (cakeIdx !== -1) {
+        expect(ids.indexOf('graph.md')).toBeLessThan(cakeIdx);
+      }
+    } finally {
+      if (original === undefined) delete process.env.KG_GRAPH_BOOST_WEIGHT;
+      else process.env.KG_GRAPH_BOOST_WEIGHT = original;
+    }
+  });
+
+  it('clamps invalid limits to the default instead of misbehaving', async () => {
+    for (const bad of [-3, 0, NaN]) {
+      const results = await search.hybrid('graph', bad);
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.length).toBeLessThanOrEqual(20);
+    }
+  });
+});
+
+describe('Store.searchFullText limit', () => {
+  it('returns more than 20 rows when asked (hybrid candidate depth)', () => {
+    const store = new Store(':memory:');
+    for (let i = 0; i < 30; i++) {
+      store.upsertNode({ id: `n${i}.md`, title: `Note ${i}`, content: 'shared keyword corpus entry', frontmatter: {} });
+    }
+    expect(store.searchFullText('keyword', 30).length).toBe(30);
+    expect(store.searchFullText('keyword').length).toBe(20);
+    store.close();
+  });
 });
