@@ -23,7 +23,7 @@ export class Search {
   }
 
   fulltext(query: string, limit = 20): SearchResult[] {
-    return this.boostByCentrality(this.store.searchFullText(query).slice(0, limit));
+    return this.boostByCentrality(this.store.searchFullText(query, limit));
   }
 
   /**
@@ -34,15 +34,25 @@ export class Search {
    * token set) degrades to dense-only rather than failing the search.
    */
   async hybrid(query: string, limit = 20): Promise<SearchResult[]> {
+    // Boundary guard: a non-finite or sub-1 limit would silently distort the
+    // candidate depth and the final slice.
+    const cap = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : 20;
+    // Both channels fetch deeper than the final page so fusion can promote a
+    // node that only one channel ranked highly.
+    const depth = Math.max(cap * 2, 20);
+
     const queryEmbedding = await this.embedder.embed(query);
-    const dense = this.store.searchVector(queryEmbedding, Math.max(limit * 2, 20));
+    const dense = this.store.searchVector(queryEmbedding, depth);
 
     let lexical: SearchResult[] = [];
     const ftsQuery = toFtsQuery(query);
     if (ftsQuery !== '') {
       try {
-        lexical = this.store.searchFullText(ftsQuery);
-      } catch {
+        lexical = this.store.searchFullText(ftsQuery, depth);
+      } catch (err) {
+        // Best-effort channel: degrade to dense-only, but never silently — a
+        // recurring error here means real infrastructure trouble, not a typo.
+        console.error('knowledge-graph: lexical channel failed, hybrid degrading to dense-only:', err);
         lexical = [];
       }
     }
@@ -65,7 +75,11 @@ export class Search {
       const base = byId.get(nodeId);
       if (base) results.push({ ...base, score });
     }
-    return this.boostByCentrality(results).slice(0, limit);
+    // Order by fused score before the boost: boostByCentrality returns early
+    // (unsorted) when the boost weight is 0, and the Map above iterates in
+    // channel-insertion order, not score order.
+    results.sort((a, b) => b.score - a.score);
+    return this.boostByCentrality(results).slice(0, cap);
   }
 
   /**
