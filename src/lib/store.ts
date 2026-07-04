@@ -1,9 +1,12 @@
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 import type { ParsedNode, ParsedEdge, SearchResult } from './types.js';
+import { resolveEmbedDim } from './config.js';
 
 export class Store {
   db: Database.Database;
+  /** Dimension of the nodes_vec table as it exists on disk. */
+  private vecDim: number;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -12,9 +15,11 @@ export class Store {
     this.db.pragma('busy_timeout = 5000');
     sqliteVec.load(this.db);
     this.createSchema();
+    this.vecDim = this.readVecDim() ?? resolveEmbedDim();
   }
 
   private createSchema(): void {
+    const dim = resolveEmbedDim();
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS nodes (
         id TEXT PRIMARY KEY,
@@ -55,8 +60,51 @@ export class Store {
         USING fts5(title, content, content='nodes', content_rowid='rowid');
 
       CREATE VIRTUAL TABLE IF NOT EXISTS nodes_vec
-        USING vec0(embedding float[768]);
+        USING vec0(embedding float[${dim}]);
     `);
+  }
+
+  /** Parse the on-disk nodes_vec dimension out of its DDL in sqlite_master. */
+  private readVecDim(): number | undefined {
+    const row = this.db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'nodes_vec'"
+    ).get() as { sql: string } | undefined;
+    if (!row?.sql) return undefined;
+    const match = /float\[(\d+)\]/i.exec(row.sql);
+    return match ? Number(match[1]) : undefined;
+  }
+
+  /**
+   * Rebuild nodes_vec when the embedder's actual output dimension no longer
+   * matches the table (e.g. a DB indexed with 384-dim MiniLM after the switch
+   * to 768-dim bge-base). CREATE ... IF NOT EXISTS keeps the old dimension
+   * forever, and every insert/search then fails with a dimension-mismatch
+   * error. Keyed off real embedding lengths — never config alone — so a
+   * mistyped KG_EMBED_DIM can never destroy a valid index.
+   *
+   * Embeddings are derivable from vault content, so the vec rows are
+   * droppable; sync mtimes are zeroed (not deleted — the pipeline's
+   * deleted-file reconciliation diffs sync paths against disk, and losing
+   * them would permanently ghost notes removed before the rebuild) so the
+   * next index pass re-embeds every file. Single transaction: a crash
+   * mid-rebuild must not leave an empty vec table with live sync mtimes.
+   */
+  ensureVecDim(dim: number): void {
+    if (!Number.isInteger(dim) || dim <= 0) {
+      throw new Error(`Invalid embedding dimension: ${dim}`);
+    }
+    if (dim === this.vecDim) return;
+    const previousDim = this.vecDim;
+    this.db.transaction(() => {
+      this.db.exec('DROP TABLE IF EXISTS nodes_vec');
+      this.db.exec(`CREATE VIRTUAL TABLE nodes_vec USING vec0(embedding float[${dim}])`);
+      this.db.exec('UPDATE sync SET mtime = 0');
+    })();
+    this.vecDim = dim;
+    console.error(
+      `knowledge-graph: nodes_vec dimension changed (${previousDim} → ${dim}); ` +
+      'rebuilt vector index — every note re-embeds on the next index pass'
+    );
   }
 
   upsertNode(node: ParsedNode): void {
@@ -216,6 +264,7 @@ export class Store {
   }
 
   upsertEmbedding(nodeId: string, embedding: Float32Array): void {
+    this.ensureVecDim(embedding.length);
     const node = this.getNode(nodeId);
     if (!node) return;
     // sqlite-vec requires BigInt rowids via better-sqlite3
@@ -226,6 +275,16 @@ export class Store {
   }
 
   searchVector(embedding: Float32Array, limit = 20): SearchResult[] {
+    // A query at the wrong dimension means the index predates a model change
+    // and has not been re-indexed yet. Degrade to no dense results (a MATCH
+    // would throw) — kg_index rebuilds the table via the embedding write path.
+    if (embedding.length !== this.vecDim) {
+      console.error(
+        `knowledge-graph: query embedding is ${embedding.length}-dim but the vector index is ` +
+        `${this.vecDim}-dim — run kg_index to rebuild before semantic search returns results`
+      );
+      return [];
+    }
     return this.db.prepare(`
       SELECT v.rowid, v.distance, n.id, n.title, n.content
       FROM nodes_vec v
