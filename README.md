@@ -34,7 +34,7 @@ export KG_DATA_DIR=/path/to/data
 
 ## CLI usage
 
-Index your vault (first run downloads a 22MB embedding model):
+Index your vault (first run downloads a 109MB embedding model):
 
 ```bash
 npx tsx src/cli/index.ts index
@@ -91,7 +91,7 @@ No LLM inside the tool — the agent does the reasoning, the tool provides the d
 
 - **Parser:** Walks the vault for `.md` files, extracts YAML frontmatter (via gray-matter), wiki links, inline `#tags`, and enclosing paragraphs as edge context. Handles malformed YAML gracefully.
 - **Store:** SQLite with sqlite-vec for vector search and FTS5 for full-text search. Single file database.
-- **Embedder:** `Xenova/all-MiniLM-L6-v2` via @huggingface/transformers. Runs locally, 22MB quantized model, 384-dimensional embeddings computed from title + tags + first paragraph.
+- **Embedder:** `Xenova/bge-base-en-v1.5` via @huggingface/transformers. Runs locally, 109MB quantized model, 768-dimensional embeddings computed from title + tags + first paragraph. Override with `KG_EMBED_MODEL` env var; if the override model uses a different dimension, set `KG_EMBED_DIM` to match (default 768). On a dimension change the vector index is rebuilt automatically and the next index run re-embeds every note.
 - **Graph:** graphology for in-memory graph algorithms — Louvain community detection, betweenness centrality, PageRank (with degree centrality fallback for disconnected graphs), BFS traversal, all-simple-paths via DFS.
 - **Indexing:** Incremental by default — tracks file mtimes, only reprocesses changed files. Community detection re-runs on the full graph. Use `--force` for a full rebuild.
 

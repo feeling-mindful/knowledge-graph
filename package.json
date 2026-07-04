@@ -1,6 +1,6 @@
 {
   "name": "@feelingmindful/knowledge-graph",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Obsidian vault knowledge graph MCP server with semantic search, community detection, and wiki-link traversal",
   "type": "module",
   "scripts": {
@@ -14,7 +14,9 @@
     "kg": "dist/cli/index.js",
     "knowledge-graph": "dist/mcp/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"

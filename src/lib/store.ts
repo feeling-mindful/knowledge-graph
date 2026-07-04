@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 import type { ParsedNode, ParsedEdge, SearchResult } from './types.js';
+import { resolveEmbedDim } from './config.js';
 
 export class Store {
   db: Database.Database;
@@ -15,6 +16,8 @@ export class Store {
   }
 
   private createSchema(): void {
+    const dim = resolveEmbedDim();
+    this.rebuildVecTableOnDimChange(dim);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS nodes (
         id TEXT PRIMARY KEY,
@@ -55,8 +58,37 @@ export class Store {
         USING fts5(title, content, content='nodes', content_rowid='rowid');
 
       CREATE VIRTUAL TABLE IF NOT EXISTS nodes_vec
-        USING vec0(embedding float[768]);
+        USING vec0(embedding float[${dim}]);
     `);
+  }
+
+  /**
+   * Drop and recreate nodes_vec when its stored dimension no longer matches
+   * the configured embedder (e.g. a DB indexed with 384-dim MiniLM opened
+   * after the switch to 768-dim bge-base). CREATE ... IF NOT EXISTS keeps the
+   * old dimension forever, and every insert/search then fails with a
+   * dimension-mismatch error. Embeddings are derivable from vault content, so
+   * sync mtimes are cleared too — the next index pass re-embeds every file.
+   */
+  private rebuildVecTableOnDimChange(expectedDim: number): void {
+    const row = this.db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'nodes_vec'"
+    ).get() as { sql: string } | undefined;
+    if (!row?.sql) return;
+    const match = /float\[(\d+)\]/i.exec(row.sql);
+    if (!match) return;
+    const actualDim = Number(match[1]);
+    if (actualDim === expectedDim) return;
+
+    this.db.exec('DROP TABLE nodes_vec');
+    const hasSync = this.db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync'"
+    ).get();
+    if (hasSync) this.db.exec('DELETE FROM sync');
+    console.error(
+      `knowledge-graph: nodes_vec dimension changed (${actualDim} → ${expectedDim}); ` +
+      'rebuilt vector index — run kg_index to re-embed all notes'
+    );
   }
 
   upsertNode(node: ParsedNode): void {
