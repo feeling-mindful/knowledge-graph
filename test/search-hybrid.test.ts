@@ -103,4 +103,21 @@ describe('Store.searchFullText limit', () => {
     expect(store.searchFullText('keyword').length).toBe(20);
     store.close();
   });
+
+  it('clamps invalid limits at the storage boundary (MCP/CLI can pass NaN or <= 0)', () => {
+    const store = new Store(':memory:');
+    for (let i = 0; i < 25; i++) {
+      store.upsertNode({ id: `n${i}.md`, title: `Note ${i}`, content: 'shared keyword corpus entry', frontmatter: {} });
+    }
+    for (const bad of [NaN, 0, -5, 2.7]) {
+      expect(store.searchFullText('keyword', bad).length).toBeLessThanOrEqual(20);
+      expect(store.searchFullText('keyword', bad).length).toBeGreaterThan(0);
+    }
+    // searchVector must not throw on a bad k either.
+    store.upsertEmbedding('n0.md', new Float32Array(768).fill(0.1));
+    for (const bad of [NaN, 0, -5]) {
+      expect(() => store.searchVector(new Float32Array(768).fill(0.1), bad)).not.toThrow();
+    }
+    store.close();
+  });
 });

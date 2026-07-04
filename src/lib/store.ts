@@ -255,7 +255,7 @@ export class Store {
       WHERE nodes_fts MATCH ?
       ORDER BY rank
       LIMIT ?
-    `).all(query, limit).map((r: any) => ({
+    `).all(query, clampLimit(limit)).map((r: any) => ({
       nodeId: r.id,
       title: r.title,
       score: -r.rank,
@@ -291,7 +291,7 @@ export class Store {
       JOIN nodes n ON n.rowid = v.rowid
       WHERE embedding MATCH ? AND k = ?
       ORDER BY distance
-    `).all(Buffer.from(embedding.buffer), limit).map((r: any) => ({
+    `).all(Buffer.from(embedding.buffer), clampLimit(limit)).map((r: any) => ({
       nodeId: r.id,
       title: r.title,
       score: 1 - r.distance,
@@ -377,6 +377,15 @@ export class Store {
   close(): void {
     this.db.close();
   }
+}
+
+/**
+ * Clamp a caller-supplied limit at the storage boundary: MCP clients and the
+ * CLI can hand us NaN (parseInt of garbage), zero, or negatives, none of which
+ * belong in a SQL LIMIT or a vec0 k.
+ */
+function clampLimit(limit: number, fallback = 20): number {
+  return Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : fallback;
 }
 
 function firstParagraph(content: string, maxLen: number): string {
