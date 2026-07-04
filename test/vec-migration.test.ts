@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { Store } from '../src/lib/store.js';
+import type { Embedder } from '../src/lib/embedder.js';
+import { IndexPipeline } from '../src/lib/index-pipeline.js';
 import { resolveEmbedDim } from '../src/lib/config.js';
 
 function vecTableSql(store: Store): string {
@@ -10,6 +12,18 @@ function vecTableSql(store: Store): string {
     "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'nodes_vec'"
   ).get() as { sql: string };
   return row.sql;
+}
+
+function vecRowCount(store: Store): number {
+  const row = store.db.prepare('SELECT COUNT(*) as cnt FROM nodes_vec').get() as { cnt: number };
+  return row.cnt;
+}
+
+/** Deterministic fake embedder producing vectors of a fixed dimension. */
+function fakeEmbedder(dim: number): Embedder {
+  return {
+    embed: async () => new Float32Array(dim).fill(0.5),
+  } as unknown as Embedder;
 }
 
 describe('resolveEmbedDim', () => {
@@ -38,7 +52,7 @@ describe('resolveEmbedDim', () => {
   });
 });
 
-describe('nodes_vec dimension migration', () => {
+describe('nodes_vec dimension self-healing', () => {
   let dir: string;
   let dbPath: string;
   const originalDim = process.env.KG_EMBED_DIM;
@@ -54,43 +68,65 @@ describe('nodes_vec dimension migration', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('creates the vec table at the configured dimension', () => {
-    delete process.env.KG_EMBED_DIM;
-    const store = new Store(dbPath);
-    expect(vecTableSql(store)).toContain('float[768]');
-    store.close();
-  });
-
-  it('rebuilds the vec table and clears sync when the dimension changes', () => {
-    // Simulate an old 384-dim database with indexed content.
+  function makeLegacy384Db(): void {
     process.env.KG_EMBED_DIM = '384';
-    const oldStore = new Store(dbPath);
-    oldStore.upsertNode({ id: 'a.md', title: 'Alpha', content: 'alpha content', frontmatter: {} });
-    oldStore.upsertEmbedding('a.md', new Float32Array(384).fill(0.1));
-    oldStore.upsertSync('a.md', 12345);
-    oldStore.close();
+    const legacy = new Store(dbPath);
+    legacy.upsertNode({ id: 'a.md', title: 'Alpha', content: 'alpha content', frontmatter: {} });
+    legacy.upsertEmbedding('a.md', new Float32Array(384).fill(0.1));
+    legacy.upsertSync('a.md', 12345);
+    legacy.upsertSync('deleted-before-upgrade.md', 999);
+    legacy.close();
+    delete process.env.KG_EMBED_DIM;
+  }
 
-    // Reopen at the new 768-dim default.
+  it('creates the vec table at the configured dimension on a fresh DB', () => {
     delete process.env.KG_EMBED_DIM;
     const store = new Store(dbPath);
-
     expect(vecTableSql(store)).toContain('float[768]');
-    // Vector index rebuilt empty; sync cleared so next index re-embeds all.
-    const vecCount = store.db.prepare('SELECT COUNT(*) as cnt FROM nodes_vec').get() as { cnt: number };
-    expect(vecCount.cnt).toBe(0);
-    expect(store.getSyncMtime('a.md')).toBeUndefined();
-    // Node content itself is preserved.
-    expect(store.getNode('a.md')?.title).toBe('Alpha');
-
-    // Writes and searches at the new dimension work.
-    store.upsertEmbedding('a.md', new Float32Array(768).fill(0.1));
-    const results = store.searchVector(new Float32Array(768).fill(0.1), 5);
-    expect(results.length).toBe(1);
-    expect(results[0].nodeId).toBe('a.md');
     store.close();
   });
 
-  it('leaves the vec table and sync intact when the dimension matches', () => {
+  it('opening a legacy DB does NOT destroy the index (config alone never rebuilds)', () => {
+    makeLegacy384Db();
+    const store = new Store(dbPath); // default env resolves to 768
+    expect(vecTableSql(store)).toContain('float[384]');
+    expect(vecRowCount(store)).toBe(1);
+    expect(store.getSyncMtime('a.md')).toBe(12345);
+    store.close();
+  });
+
+  it('writing an embedding of a new dimension rebuilds the table and zeroes sync mtimes', () => {
+    makeLegacy384Db();
+    const store = new Store(dbPath);
+
+    // The exact write that used to throw SqliteError: Dimension mismatch.
+    store.upsertEmbedding('a.md', new Float32Array(768).fill(0.2));
+
+    expect(vecTableSql(store)).toContain('float[768]');
+    expect(vecRowCount(store)).toBe(1);
+    const results = store.searchVector(new Float32Array(768).fill(0.2), 5);
+    expect(results.map(r => r.nodeId)).toEqual(['a.md']);
+
+    // Sync mtimes zeroed → every file re-indexes next pass; paths preserved →
+    // deleted-file reconciliation still sees notes removed before the rebuild.
+    expect(store.getSyncMtime('a.md')).toBe(0);
+    expect(store.getAllSyncPaths()).toContain('deleted-before-upgrade.md');
+    expect(store.getNode('a.md')?.title).toBe('Alpha');
+    store.close();
+  });
+
+  it('searchVector degrades to empty results on dimension mismatch instead of throwing', () => {
+    makeLegacy384Db();
+    const store = new Store(dbPath);
+    const results = store.searchVector(new Float32Array(768).fill(0.1), 5);
+    expect(results).toEqual([]);
+    // The 384-dim index is untouched — search must never trigger a rebuild.
+    expect(vecTableSql(store)).toContain('float[384]');
+    expect(vecRowCount(store)).toBe(1);
+    store.close();
+  });
+
+  it('matching dimension leaves vec rows and sync mtimes intact', () => {
     delete process.env.KG_EMBED_DIM;
     const first = new Store(dbPath);
     first.upsertNode({ id: 'a.md', title: 'Alpha', content: 'alpha content', frontmatter: {} });
@@ -99,9 +135,47 @@ describe('nodes_vec dimension migration', () => {
     first.close();
 
     const store = new Store(dbPath);
-    const vecCount = store.db.prepare('SELECT COUNT(*) as cnt FROM nodes_vec').get() as { cnt: number };
-    expect(vecCount.cnt).toBe(1);
+    store.upsertEmbedding('a.md', new Float32Array(768).fill(0.3));
+    expect(vecRowCount(store)).toBe(1);
     expect(store.getSyncMtime('a.md')).toBe(12345);
+    store.close();
+  });
+
+  it('rejects invalid dimensions', () => {
+    const store = new Store(dbPath);
+    for (const bad of [0, -1, 1.5, NaN]) {
+      expect(() => store.ensureVecDim(bad)).toThrow('Invalid embedding dimension');
+    }
+    store.close();
+  });
+
+  it('index pipeline probe re-embeds the whole vault and reconciles deletions after a model change', async () => {
+    const vaultPath = join(dir, 'vault');
+    mkdirSync(vaultPath);
+    writeFileSync(join(vaultPath, 'a.md'), '# Alpha\n\nalpha content\n');
+    writeFileSync(join(vaultPath, 'b.md'), '# Beta\n\nbeta content\n');
+
+    // Index everything under the legacy 384-dim model.
+    process.env.KG_EMBED_DIM = '384';
+    const legacy = new Store(dbPath);
+    await new IndexPipeline(legacy, fakeEmbedder(384)).index(vaultPath);
+    expect(vecRowCount(legacy)).toBe(2);
+    legacy.close();
+    delete process.env.KG_EMBED_DIM;
+
+    // A note is deleted while the app is offline, then the model changes.
+    unlinkSync(join(vaultPath, 'b.md'));
+
+    const store = new Store(dbPath);
+    const stats = await new IndexPipeline(store, fakeEmbedder(768)).index(vaultPath);
+
+    expect(vecTableSql(store)).toContain('float[768]');
+    // a.md re-embedded even though its mtime never changed on disk.
+    expect(stats.nodesIndexed).toBe(1);
+    expect(vecRowCount(store)).toBe(1);
+    // b.md fully reconciled — no ghost in nodes or full-text search.
+    expect(store.getNode('b.md')).toBeUndefined();
+    expect(store.searchFullText('beta')).toEqual([]);
     store.close();
   });
 });

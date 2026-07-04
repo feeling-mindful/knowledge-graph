@@ -28,6 +28,13 @@ export class IndexPipeline {
       stubNodesCreated: 0,
     };
 
+    // Probe the embedder's actual output dimension up front so a model change
+    // rebuilds the vector index (zeroing sync mtimes) BEFORE the incremental
+    // loop reads them — the whole vault then re-embeds in this same pass, even
+    // when no file changed on disk.
+    const probe = await this.embedder.embed('dimension probe');
+    this.store.ensureVecDim(probe.length);
+
     const { nodes, edges, stubIds } = await parseVault(vaultPath);
     const previousPaths = this.store.getAllSyncPaths();
 
