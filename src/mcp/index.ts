@@ -168,13 +168,23 @@ server.tool(
     from: z.string().describe('Source node name'),
     to: z.string().describe('Target node name'),
     maxDepth: z.number().optional().describe('Maximum path depth (default 3)'),
+    limit: z.number().optional().describe('Max paths returned, shortest first (default 10)'),
   },
-  async ({ from, to, maxDepth }) => {
+  async ({ from, to, maxDepth, limit }) => {
     const fromId = requireMatch(from);
     const toId = requireMatch(to);
     const kg = KnowledgeGraph.fromStore(store);
-    const paths = kg.findPaths(fromId, toId, maxDepth ?? 3);
-    return { content: [{ type: 'text', text: JSON.stringify(paths, null, 2) }] };
+    // Dense vaults yield hundreds of simple paths; cap the payload at the
+    // boundary and report the true total so callers can raise the limit.
+    const cap = Number.isFinite(limit) && (limit as number) >= 1 ? Math.floor(limit as number) : 10;
+    const all = kg.findPaths(fromId, toId, maxDepth ?? 3);
+    const result = {
+      totalCount: all.length,
+      returned: Math.min(cap, all.length),
+      hasMore: all.length > cap,
+      paths: all.slice(0, cap),
+    };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
 

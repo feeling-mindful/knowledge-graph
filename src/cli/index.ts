@@ -145,13 +145,21 @@ program
   .command('paths <from> <to>')
   .description('Find connecting paths between two nodes')
   .option('--max-depth <n>', 'Maximum path depth', '3')
+  .option('--limit <n>', 'Max paths returned, shortest first', '10')
   .action((from, to, opts) => {
     const store = getStore();
     const fromId = requireSingleMatch(from, store);
     const toId = requireSingleMatch(to, store);
     const kg = KnowledgeGraph.fromStore(store);
-    const paths = kg.findPaths(fromId, toId, parseInt(opts.maxDepth));
-    output(paths);
+    const parsed = parseInt(opts.limit);
+    const cap = Number.isFinite(parsed) && parsed >= 1 ? parsed : 10;
+    const all = kg.findPaths(fromId, toId, parseInt(opts.maxDepth));
+    output({
+      totalCount: all.length,
+      returned: Math.min(cap, all.length),
+      hasMore: all.length > cap,
+      paths: all.slice(0, cap),
+    });
     store.close();
   });
 
