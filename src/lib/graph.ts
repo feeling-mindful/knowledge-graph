@@ -126,8 +126,12 @@ export class KnowledgeGraph {
 
   findPaths(fromId: string, toId: string, maxDepth: number): PathResult[] {
     if (!this.graph.hasNode(fromId) || !this.graph.hasNode(toId)) return [];
+    // Guard the DFS bound here, not just at the tool boundary: `depth >= NaN`
+    // is always false, so a NaN maxDepth (Zod's z.number() accepts NaN, and
+    // the CLI parseInt can produce it) would enumerate simple paths unbounded.
+    const depth = Number.isFinite(maxDepth) && maxDepth >= 1 ? Math.floor(maxDepth) : 3;
     const undirected = this.toUndirected();
-    const rawPaths = findAllSimplePaths(undirected, fromId, toId, maxDepth);
+    const rawPaths = findAllSimplePaths(undirected, fromId, toId, depth);
 
     return rawPaths.map(nodePath => {
       const edges: PathResult['edges'] = [];

@@ -54,6 +54,14 @@ describe('KnowledgeGraph', () => {
     expect(paths).toHaveLength(0);
   });
 
+  it('clamps invalid maxDepth to the default instead of unbounded DFS', () => {
+    for (const bad of [NaN, 0, -2]) {
+      const paths = kg.findPaths('a.md', 'c.md', bad);
+      expect(paths.length).toBeGreaterThan(0);
+      for (const p of paths) expect(p.length).toBeLessThanOrEqual(3);
+    }
+  });
+
   it('returns paths shortest-first so boundary truncation keeps the best ones', () => {
     const paths = kg.findPaths('a.md', 'c.md', 3);
     for (let i = 1; i < paths.length; i++) {
