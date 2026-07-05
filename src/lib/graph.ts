@@ -145,7 +145,10 @@ export class KnowledgeGraph {
         });
       }
       return { nodes: nodePath, edges, length: nodePath.length - 1 };
-    });
+    })
+      // Shortest-first so boundary truncation (MCP/CLI limit) keeps the most
+      // direct connections; a dense vault can yield hundreds of simple paths.
+      .sort((a, b) => a.length - b.length);
   }
 
   commonNeighbors(nodeA: string, nodeB: string): Array<{ id: string; title: string }> {

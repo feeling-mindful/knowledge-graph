@@ -54,6 +54,16 @@ describe('KnowledgeGraph', () => {
     expect(paths).toHaveLength(0);
   });
 
+  it('returns paths shortest-first so boundary truncation keeps the best ones', () => {
+    const paths = kg.findPaths('a.md', 'c.md', 3);
+    for (let i = 1; i < paths.length; i++) {
+      expect(paths[i].length).toBeGreaterThanOrEqual(paths[i - 1].length);
+    }
+    // The direct A -> C hop must come before the A -> B -> C detour even though
+    // DFS discovers the detour first (B is A's first-inserted neighbor).
+    expect(paths[0].nodes).toEqual(['a.md', 'c.md']);
+  });
+
   it('finds common neighbors', () => {
     const common = kg.commonNeighbors('a.md', 'b.md');
     expect(common.map(n => n.id)).toContain('c.md');
